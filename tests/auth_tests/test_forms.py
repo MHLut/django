@@ -14,6 +14,7 @@ from django.contrib.auth.forms import (
     SetPasswordForm,
     UserChangeForm,
     UserCreationForm,
+    UsernameField,
 )
 from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_login_failed
@@ -153,6 +154,12 @@ class BaseUserCreationFormTest(TestDataMixin, TestCase):
         user = form.save()
         self.assertNotEqual(user.username, ohm_username)
         self.assertEqual(user.username, "testΩ")  # U+03A9 GREEK CAPITAL LETTER OMEGA
+
+    def test_invalid_username_no_normalize(self):
+        field = UsernameField(max_length=254)
+        # Usernames are not normalized if they are too long.
+        self.assertEqual(field.to_python("½" * 255), "½" * 255)
+        self.assertEqual(field.to_python("ﬀ" * 254), "ff" * 254)
 
     def test_duplicate_normalized_unicode(self):
         """
@@ -1316,6 +1323,42 @@ class AdminPasswordChangeFormTest(TestDataMixin, TestCase):
         form.save()
         self.assertEqual(password_changed.call_count, 1)
         self.assertEqual(form.changed_data, ["password"])
+
+    @override_settings(
+        AUTH_PASSWORD_VALIDATORS=[
+            {
+                "NAME": (
+                    "django.contrib.auth.password_validation."
+                    "UserAttributeSimilarityValidator"
+                )
+            },
+            {
+                "NAME": (
+                    "django.contrib.auth.password_validation.MinimumLengthValidator"
+                ),
+                "OPTIONS": {
+                    "min_length": 12,
+                },
+            },
+        ]
+    )
+    def test_validates_password(self):
+        user = User.objects.get(username="testclient")
+        data = {
+            "password1": "testclient",
+            "password2": "testclient",
+        }
+        form = AdminPasswordChangeForm(user, data)
+        self.assertFalse(form.is_valid())
+        self.assertEqual(len(form["password2"].errors), 2)
+        self.assertIn(
+            "The password is too similar to the username.",
+            form["password2"].errors,
+        )
+        self.assertIn(
+            "This password is too short. It must contain at least 12 characters.",
+            form["password2"].errors,
+        )
 
     def test_password_whitespace_not_stripped(self):
         user = User.objects.get(username="testclient")

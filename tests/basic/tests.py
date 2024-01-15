@@ -13,6 +13,8 @@ from django.test import (
     TransactionTestCase,
     skipUnlessDBFeature,
 )
+from django.test.utils import ignore_warnings
+from django.utils.deprecation import RemovedInDjango60Warning
 from django.utils.translation import gettext_lazy
 
 from .models import (
@@ -186,6 +188,50 @@ class ModelInstanceCreationTests(TestCase):
         # default.
         with self.assertNumQueries(2):
             ChildPrimaryKeyWithDefault().save()
+
+    def test_save_deprecation(self):
+        a = Article(headline="original", pub_date=datetime(2014, 5, 16))
+        msg = "Passing positional arguments to save() is deprecated"
+        with self.assertWarnsMessage(RemovedInDjango60Warning, msg):
+            a.save(False, False, None, None)
+            self.assertEqual(Article.objects.count(), 1)
+
+    async def test_asave_deprecation(self):
+        a = Article(headline="original", pub_date=datetime(2014, 5, 16))
+        msg = "Passing positional arguments to asave() is deprecated"
+        with self.assertWarnsMessage(RemovedInDjango60Warning, msg):
+            await a.asave(False, False, None, None)
+            self.assertEqual(await Article.objects.acount(), 1)
+
+    @ignore_warnings(category=RemovedInDjango60Warning)
+    def test_save_positional_arguments(self):
+        a = Article.objects.create(headline="original", pub_date=datetime(2014, 5, 16))
+        a.headline = "changed"
+
+        a.save(False, False, None, ["pub_date"])
+        a.refresh_from_db()
+        self.assertEqual(a.headline, "original")
+
+        a.headline = "changed"
+        a.save(False, False, None, ["pub_date", "headline"])
+        a.refresh_from_db()
+        self.assertEqual(a.headline, "changed")
+
+    @ignore_warnings(category=RemovedInDjango60Warning)
+    async def test_asave_positional_arguments(self):
+        a = await Article.objects.acreate(
+            headline="original", pub_date=datetime(2014, 5, 16)
+        )
+        a.headline = "changed"
+
+        await a.asave(False, False, None, ["pub_date"])
+        await a.arefresh_from_db()
+        self.assertEqual(a.headline, "original")
+
+        a.headline = "changed"
+        await a.asave(False, False, None, ["pub_date", "headline"])
+        await a.arefresh_from_db()
+        self.assertEqual(a.headline, "changed")
 
 
 class ModelTest(TestCase):
@@ -926,24 +972,34 @@ class ModelRefreshTests(TestCase):
 
     def test_prefetched_cache_cleared(self):
         a = Article.objects.create(pub_date=datetime(2005, 7, 28))
-        s = SelfRef.objects.create(article=a)
+        s = SelfRef.objects.create(article=a, article_cited=a)
         # refresh_from_db() without fields=[...]
-        a1_prefetched = Article.objects.prefetch_related("selfref_set").first()
+        a1_prefetched = Article.objects.prefetch_related("selfref_set", "cited").first()
         self.assertCountEqual(a1_prefetched.selfref_set.all(), [s])
+        self.assertCountEqual(a1_prefetched.cited.all(), [s])
         s.article = None
+        s.article_cited = None
         s.save()
         # Relation is cleared and prefetch cache is stale.
         self.assertCountEqual(a1_prefetched.selfref_set.all(), [s])
+        self.assertCountEqual(a1_prefetched.cited.all(), [s])
         a1_prefetched.refresh_from_db()
         # Cache was cleared and new results are available.
         self.assertCountEqual(a1_prefetched.selfref_set.all(), [])
+        self.assertCountEqual(a1_prefetched.cited.all(), [])
         # refresh_from_db() with fields=[...]
-        a2_prefetched = Article.objects.prefetch_related("selfref_set").first()
+        a2_prefetched = Article.objects.prefetch_related("selfref_set", "cited").first()
         self.assertCountEqual(a2_prefetched.selfref_set.all(), [])
+        self.assertCountEqual(a2_prefetched.cited.all(), [])
         s.article = a
+        s.article_cited = a
         s.save()
         # Relation is added and prefetch cache is stale.
         self.assertCountEqual(a2_prefetched.selfref_set.all(), [])
-        a2_prefetched.refresh_from_db(fields=["selfref_set"])
+        self.assertCountEqual(a2_prefetched.cited.all(), [])
+        fields = ["selfref_set", "cited"]
+        a2_prefetched.refresh_from_db(fields=fields)
+        self.assertEqual(fields, ["selfref_set", "cited"])
         # Cache was cleared and new results are available.
         self.assertCountEqual(a2_prefetched.selfref_set.all(), [s])
+        self.assertCountEqual(a2_prefetched.cited.all(), [s])

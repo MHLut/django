@@ -829,7 +829,11 @@ class SchemaTests(TransactionTestCase):
     def test_add_generated_field_with_kt_model(self):
         class GeneratedFieldKTModel(Model):
             data = JSONField()
-            status = GeneratedField(expression=KT("data__status"), db_persist=True)
+            status = GeneratedField(
+                expression=KT("data__status"),
+                output_field=TextField(),
+                db_persist=True,
+            )
 
             class Meta:
                 app_label = "schema"
@@ -843,8 +847,29 @@ class SchemaTests(TransactionTestCase):
         )
 
     @isolate_apps("schema")
+    @skipUnlessDBFeature("supports_virtual_generated_columns")
+    def test_add_generated_boolean_field(self):
+        class GeneratedBooleanFieldModel(Model):
+            value = IntegerField(null=True)
+            has_value = GeneratedField(
+                expression=Q(value__isnull=False),
+                output_field=BooleanField(),
+                db_persist=False,
+            )
+
+            class Meta:
+                app_label = "schema"
+
+        with connection.schema_editor() as editor:
+            editor.create_model(GeneratedBooleanFieldModel)
+        obj = GeneratedBooleanFieldModel.objects.create()
+        self.assertIs(obj.has_value, False)
+        obj = GeneratedBooleanFieldModel.objects.create(value=1)
+        self.assertIs(obj.has_value, True)
+
+    @isolate_apps("schema")
     @skipUnlessDBFeature("supports_stored_generated_columns")
-    def test_add_generated_field_with_output_field(self):
+    def test_add_generated_field(self):
         class GeneratedFieldOutputFieldModel(Model):
             price = DecimalField(max_digits=7, decimal_places=2)
             vat_price = GeneratedField(
@@ -1053,11 +1078,14 @@ class SchemaTests(TransactionTestCase):
     def test_alter_text_field_to_not_null_with_default_value(self):
         with connection.schema_editor() as editor:
             editor.create_model(Note)
+        note = Note.objects.create(address=None)
         old_field = Note._meta.get_field("address")
         new_field = TextField(blank=True, default="", null=False)
         new_field.set_attributes_from_name("address")
         with connection.schema_editor() as editor:
             editor.alter_field(Note, old_field, new_field, strict=True)
+        note.refresh_from_db()
+        self.assertEqual(note.address, "")
 
     @skipUnlessDBFeature("can_defer_constraint_checks", "can_rollback_ddl")
     def test_alter_fk_checks_deferred_constraints(self):
@@ -2257,6 +2285,23 @@ class SchemaTests(TransactionTestCase):
         columns = self.column_classes(AuthorDbDefault)
         self.assertEqual(columns["renamed_year"][1].default, "1985")
 
+    @isolate_apps("schema")
+    def test_add_field_both_defaults_preserves_db_default(self):
+        class Author(Model):
+            class Meta:
+                app_label = "schema"
+
+        with connection.schema_editor() as editor:
+            editor.create_model(Author)
+
+        field = IntegerField(default=1985, db_default=1988)
+        field.set_attributes_from_name("birth_year")
+        field.model = Author
+        with connection.schema_editor() as editor:
+            editor.add_field(Author, field)
+        columns = self.column_classes(Author)
+        self.assertEqual(columns["birth_year"][1].default, "1988")
+
     @skipUnlessDBFeature(
         "supports_column_check_constraints", "can_introspect_check_constraints"
     )
@@ -3447,7 +3492,7 @@ class SchemaTests(TransactionTestCase):
                 editor.add_constraint(Author, constraint)
 
     @skipUnlessDBFeature("supports_nulls_distinct_unique_constraints")
-    def test_unique_constraint_nulls_distinct(self):
+    def test_unique_constraint_index_nulls_distinct(self):
         with connection.schema_editor() as editor:
             editor.create_model(Author)
         nulls_distinct = UniqueConstraint(
@@ -3469,6 +3514,29 @@ class SchemaTests(TransactionTestCase):
         constraints = self.get_constraints(Author._meta.db_table)
         self.assertNotIn(nulls_distinct.name, constraints)
         self.assertNotIn(nulls_not_distinct.name, constraints)
+
+    @skipUnlessDBFeature("supports_nulls_distinct_unique_constraints")
+    def test_unique_constraint_nulls_distinct(self):
+        with connection.schema_editor() as editor:
+            editor.create_model(Author)
+        constraint = UniqueConstraint(
+            fields=["height", "weight"], name="constraint", nulls_distinct=False
+        )
+        with connection.schema_editor() as editor:
+            editor.add_constraint(Author, constraint)
+        Author.objects.create(name="", height=None, weight=None)
+        Author.objects.create(name="", height=1, weight=None)
+        Author.objects.create(name="", height=None, weight=1)
+        with self.assertRaises(IntegrityError):
+            Author.objects.create(name="", height=None, weight=None)
+        with self.assertRaises(IntegrityError):
+            Author.objects.create(name="", height=1, weight=None)
+        with self.assertRaises(IntegrityError):
+            Author.objects.create(name="", height=None, weight=1)
+        with connection.schema_editor() as editor:
+            editor.remove_constraint(Author, constraint)
+        constraints = self.get_constraints(Author._meta.db_table)
+        self.assertNotIn(constraint.name, constraints)
 
     @skipIfDBFeature("supports_nulls_distinct_unique_constraints")
     def test_unique_constraint_nulls_distinct_unsupported(self):
@@ -4719,6 +4787,23 @@ class SchemaTests(TransactionTestCase):
             self.get_table_comment(ModelWithDbTableComment._meta.db_table),
             [None, ""],
         )
+
+    @isolate_apps("schema")
+    @skipIfDBFeature("supports_comments")
+    def test_db_comment_table_unsupported(self):
+        class ModelWithDbTableComment(Model):
+            class Meta:
+                app_label = "schema"
+                db_table_comment = "Custom table comment"
+
+        # Table comments are ignored on databases that don't support them.
+        with connection.schema_editor() as editor, self.assertNumQueries(1):
+            editor.create_model(ModelWithDbTableComment)
+        self.isolated_local_models = [ModelWithDbTableComment]
+        with connection.schema_editor() as editor, self.assertNumQueries(0):
+            editor.alter_db_table_comment(
+                ModelWithDbTableComment, "Custom table comment", "New table comment"
+            )
 
     @isolate_apps("schema")
     @skipUnlessDBFeature("supports_comments", "supports_foreign_keys")

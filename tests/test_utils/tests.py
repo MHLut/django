@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 import unittest
 import warnings
 from io import StringIO
@@ -156,7 +157,9 @@ class SkippingTestCase(SimpleTestCase):
         )
 
 
-class SkippingClassTestCase(TestCase):
+class SkippingClassTestCase(TransactionTestCase):
+    available_apps = []
+
     def test_skip_class_unless_db_feature(self):
         @skipUnlessDBFeature("__class__")
         class NotSkippedTests(TestCase):
@@ -1052,6 +1055,16 @@ class InHTMLTests(SimpleTestCase):
         )
         with self.assertRaisesMessage(AssertionError, msg):
             self.assertInHTML("<b>This</b>", haystack, 3)
+
+    def test_assert_not_in_html(self):
+        haystack = "<p><b>Hello</b> <span>there</span>! Hi <span>there</span>!</p>"
+        self.assertNotInHTML("<b>Hi</b>", haystack=haystack)
+        msg = (
+            "'<b>Hello</b>' unexpectedly found in the following response"
+            f"\n{haystack!r}"
+        )
+        with self.assertRaisesMessage(AssertionError, msg):
+            self.assertNotInHTML("<b>Hello</b>", haystack=haystack)
 
 
 class JSONEqualTests(SimpleTestCase):
@@ -2083,6 +2096,29 @@ class DisallowedDatabaseQueriesTests(SimpleTestCase):
         with self.assertRaisesMessage(DatabaseOperationForbidden, expected_message):
             next(Car.objects.iterator())
 
+    def test_disallowed_thread_database_connection(self):
+        expected_message = (
+            "Database threaded connections to 'default' are not allowed in "
+            "SimpleTestCase subclasses. Either subclass TestCase or TransactionTestCase"
+            " to ensure proper test isolation or add 'default' to "
+            "test_utils.tests.DisallowedDatabaseQueriesTests.databases to "
+            "silence this failure."
+        )
+
+        exceptions = []
+
+        def thread_func():
+            try:
+                Car.objects.first()
+            except DatabaseOperationForbidden as e:
+                exceptions.append(e)
+
+        t = threading.Thread(target=thread_func)
+        t.start()
+        t.join()
+        self.assertEqual(len(exceptions), 1)
+        self.assertEqual(exceptions[0].args[0], expected_message)
+
 
 class AllowedDatabaseQueriesTests(SimpleTestCase):
     databases = {"default"}
@@ -2092,6 +2128,14 @@ class AllowedDatabaseQueriesTests(SimpleTestCase):
 
     def test_allowed_database_chunked_cursor_queries(self):
         next(Car.objects.iterator(), None)
+
+    def test_allowed_threaded_database_queries(self):
+        def thread_func():
+            next(Car.objects.iterator(), None)
+
+        t = threading.Thread(target=thread_func)
+        t.start()
+        t.join()
 
 
 class DatabaseAliasTests(SimpleTestCase):

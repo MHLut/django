@@ -1,0 +1,14 @@
+==========================
+Django 5.0.2 release notes
+==========================
+
+*Expected February 5, 2024*
+
+Django 5.0.2 fixes several bugs in 5.0.1.
+
+Bugfixes
+========
+
+* Reallowed, following a regression in Django 5.0.1, filtering against local
+  foreign keys not included in :attr:`.ModelAdmin.list_filter`
+  (:ticket:`35087`).

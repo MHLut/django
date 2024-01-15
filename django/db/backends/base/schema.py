@@ -111,7 +111,7 @@ class BaseDatabaseSchemaEditor:
 
     sql_create_unique = (
         "ALTER TABLE %(table)s ADD CONSTRAINT %(name)s "
-        "UNIQUE (%(columns)s)%(deferrable)s"
+        "UNIQUE%(nulls_distinct)s (%(columns)s)%(deferrable)s"
     )
     sql_delete_unique = sql_delete_constraint
 
@@ -670,13 +670,14 @@ class BaseDatabaseSchemaEditor:
                 sql.rename_table_references(old_db_table, new_db_table)
 
     def alter_db_table_comment(self, model, old_db_table_comment, new_db_table_comment):
-        self.execute(
-            self.sql_alter_table_comment
-            % {
-                "table": self.quote_name(model._meta.db_table),
-                "comment": self.quote_value(new_db_table_comment or ""),
-            }
-        )
+        if self.sql_alter_table_comment and self.connection.features.supports_comments:
+            self.execute(
+                self.sql_alter_table_comment
+                % {
+                    "table": self.quote_name(model._meta.db_table),
+                    "comment": self.quote_value(new_db_table_comment or ""),
+                }
+            )
 
     def alter_db_tablespace(self, model, old_db_tablespace, new_db_tablespace):
         """Move a model's table between tablespaces."""
@@ -744,9 +745,9 @@ class BaseDatabaseSchemaEditor:
         }
         self.execute(sql, params)
         # Drop the default if we need to
-        # (Django usually does not use in-database defaults)
         if (
-            not self.skip_default_on_alter(field)
+            field.db_default is NOT_PROVIDED
+            and not self.skip_default_on_alter(field)
             and self.effective_default(field) is not None
         ):
             changes_sql, params = self._alter_column_default_sql(

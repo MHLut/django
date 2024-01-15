@@ -1605,6 +1605,29 @@ class AdminViewBasicTest(AdminViewBasicTestCase):
             '<main id="content-start" class="content" tabindex="-1">',
         )
 
+    def test_aria_describedby_for_add_and_change_links(self):
+        response = self.client.get(reverse("admin:index"))
+        tests = [
+            ("admin_views", "actor"),
+            ("admin_views", "worker"),
+            ("auth", "group"),
+            ("auth", "user"),
+        ]
+        for app_label, model_name in tests:
+            with self.subTest(app_label=app_label, model_name=model_name):
+                row_id = f"{app_label}-{model_name}"
+                self.assertContains(response, f'<th scope="row" id="{row_id}">')
+                self.assertContains(
+                    response,
+                    f'<a href="/test_admin/admin/{app_label}/{model_name}/" '
+                    f'class="changelink" aria-describedby="{row_id}">Change</a>',
+                )
+                self.assertContains(
+                    response,
+                    f'<a href="/test_admin/admin/{app_label}/{model_name}/add/" '
+                    f'class="addlink" aria-describedby="{row_id}">Add</a>',
+                )
+
 
 @override_settings(
     AUTH_PASSWORD_VALIDATORS=[
@@ -3808,33 +3831,27 @@ class AdminViewStringPrimaryKeyTest(TestCase):
             r"""-_.!~*'() ;/?:@&=+$, <>#%" {}|\^[]`"""
         )
         cls.m1 = ModelWithStringPrimaryKey.objects.create(string_pk=cls.pk)
-        content_type_pk = ContentType.objects.get_for_model(
-            ModelWithStringPrimaryKey
-        ).pk
         user_pk = cls.superuser.pk
-        LogEntry.objects.log_action(
+        LogEntry.objects.log_actions(
             user_pk,
-            content_type_pk,
-            cls.pk,
-            cls.pk,
+            [cls.m1],
             2,
             change_message="Changed something",
+            single_object=True,
         )
-        LogEntry.objects.log_action(
+        LogEntry.objects.log_actions(
             user_pk,
-            content_type_pk,
-            cls.pk,
-            cls.pk,
+            [cls.m1],
             1,
             change_message="Added something",
+            single_object=True,
         )
-        LogEntry.objects.log_action(
+        LogEntry.objects.log_actions(
             user_pk,
-            content_type_pk,
-            cls.pk,
-            cls.pk,
+            [cls.m1],
             3,
             change_message="Deleted something",
+            single_object=True,
         )
 
     def setUp(self):
@@ -5760,6 +5777,7 @@ class SeleniumTests(AdminSeleniumTestCase):
         and with stacked and tabular inlines.
         Refs #13068, #9264, #9983, #9784.
         """
+        from selenium.webdriver import ActionChains
         from selenium.webdriver.common.by import By
 
         self.admin_login(
@@ -5772,6 +5790,8 @@ class SeleniumTests(AdminSeleniumTestCase):
 
         # Main form ----------------------------------------------------------
         self.selenium.find_element(By.ID, "id_pubdate").send_keys("2012-02-18")
+        status = self.selenium.find_element(By.ID, "id_status")
+        ActionChains(self.selenium).move_to_element(status).click(status).perform()
         self.select_option("#id_status", "option two")
         self.selenium.find_element(By.ID, "id_name").send_keys(
             " the mAin nÀMë and it's awεšomeıııİ"
@@ -5790,6 +5810,10 @@ class SeleniumTests(AdminSeleniumTestCase):
         self.selenium.find_element(
             By.ID, "id_relatedprepopulated_set-0-pubdate"
         ).send_keys("2011-12-17")
+        status = self.selenium.find_element(
+            By.ID, "id_relatedprepopulated_set-0-status"
+        )
+        ActionChains(self.selenium).move_to_element(status).click(status).perform()
         self.select_option("#id_relatedprepopulated_set-0-status", "option one")
         self.selenium.find_element(
             By.ID, "id_relatedprepopulated_set-0-name"
@@ -5821,6 +5845,10 @@ class SeleniumTests(AdminSeleniumTestCase):
         self.selenium.find_element(
             By.ID, "id_relatedprepopulated_set-1-pubdate"
         ).send_keys("1999-01-25")
+        status = self.selenium.find_element(
+            By.ID, "id_relatedprepopulated_set-1-status"
+        )
+        ActionChains(self.selenium).move_to_element(status).click(status).perform()
         self.select_option("#id_relatedprepopulated_set-1-status", "option two")
         self.selenium.find_element(
             By.ID, "id_relatedprepopulated_set-1-name"
@@ -5844,10 +5872,10 @@ class SeleniumTests(AdminSeleniumTestCase):
 
         # Tabular inlines ----------------------------------------------------
         # Initial inline
-        element = self.selenium.find_element(
+        status = self.selenium.find_element(
             By.ID, "id_relatedprepopulated_set-2-0-status"
         )
-        self.selenium.execute_script("window.scrollTo(0, %s);" % element.location["y"])
+        ActionChains(self.selenium).move_to_element(status).click(status).perform()
         self.selenium.find_element(
             By.ID, "id_relatedprepopulated_set-2-0-pubdate"
         ).send_keys("1234-12-07")
@@ -5878,6 +5906,10 @@ class SeleniumTests(AdminSeleniumTestCase):
         self.selenium.find_element(
             By.ID, "id_relatedprepopulated_set-2-1-pubdate"
         ).send_keys("1981-08-22")
+        status = self.selenium.find_element(
+            By.ID, "id_relatedprepopulated_set-2-1-status"
+        )
+        ActionChains(self.selenium).move_to_element(status).click(status).perform()
         self.select_option("#id_relatedprepopulated_set-2-1-status", "option one")
         self.selenium.find_element(
             By.ID, "id_relatedprepopulated_set-2-1-name"
@@ -5904,6 +5936,8 @@ class SeleniumTests(AdminSeleniumTestCase):
         # Initial inline.
         row_id = "id_relatedprepopulated_set-4-0-"
         self.selenium.find_element(By.ID, f"{row_id}pubdate").send_keys("2011-12-12")
+        status = self.selenium.find_element(By.ID, f"{row_id}status")
+        ActionChains(self.selenium).move_to_element(status).click(status).perform()
         self.select_option(f"#{row_id}status", "option one")
         self.selenium.find_element(By.ID, f"{row_id}name").send_keys(
             " sŤāÇkeð  inline !  "
@@ -5923,6 +5957,8 @@ class SeleniumTests(AdminSeleniumTestCase):
         )[3].click()
         row_id = "id_relatedprepopulated_set-4-1-"
         self.selenium.find_element(By.ID, f"{row_id}pubdate").send_keys("1999-01-20")
+        status = self.selenium.find_element(By.ID, f"{row_id}status")
+        ActionChains(self.selenium).move_to_element(status).click(status).perform()
         self.select_option(f"#{row_id}status", "option two")
         self.selenium.find_element(By.ID, f"{row_id}name").send_keys(
             " now you haVe anöther   sŤāÇkeð  inline with a very loooong "
@@ -6246,6 +6282,7 @@ class SeleniumTests(AdminSeleniumTestCase):
         self.assertEqual(select2_display.text, "×\nnew section")
 
     def test_inline_uuid_pk_edit_with_popup(self):
+        from selenium.webdriver import ActionChains
         from selenium.webdriver.common.by import By
         from selenium.webdriver.support.ui import Select
 
@@ -6258,8 +6295,10 @@ class SeleniumTests(AdminSeleniumTestCase):
             "admin:admin_views_relatedwithuuidpkmodel_change",
             args=(related_with_parent.id,),
         )
-        self.selenium.get(self.live_server_url + change_url)
-        self.selenium.find_element(By.ID, "change_id_parent").click()
+        with self.wait_page_loaded():
+            self.selenium.get(self.live_server_url + change_url)
+        change_parent = self.selenium.find_element(By.ID, "change_id_parent")
+        ActionChains(self.selenium).move_to_element(change_parent).click().perform()
         self.wait_for_and_switch_to_popup()
         self.selenium.find_element(By.XPATH, '//input[@value="Save"]').click()
         self.selenium.switch_to.window(self.selenium.window_handles[0])
@@ -6292,6 +6331,7 @@ class SeleniumTests(AdminSeleniumTestCase):
         self.assertEqual(select.first_selected_option.get_attribute("value"), uuid_id)
 
     def test_inline_uuid_pk_delete_with_popup(self):
+        from selenium.webdriver import ActionChains
         from selenium.webdriver.common.by import By
         from selenium.webdriver.support.ui import Select
 
@@ -6304,8 +6344,10 @@ class SeleniumTests(AdminSeleniumTestCase):
             "admin:admin_views_relatedwithuuidpkmodel_change",
             args=(related_with_parent.id,),
         )
-        self.selenium.get(self.live_server_url + change_url)
-        self.selenium.find_element(By.ID, "delete_id_parent").click()
+        with self.wait_page_loaded():
+            self.selenium.get(self.live_server_url + change_url)
+        delete_parent = self.selenium.find_element(By.ID, "delete_id_parent")
+        ActionChains(self.selenium).move_to_element(delete_parent).click().perform()
         self.wait_for_and_switch_to_popup()
         self.selenium.find_element(By.XPATH, '//input[@value="Yes, I’m sure"]').click()
         self.selenium.switch_to.window(self.selenium.window_handles[0])
@@ -6316,6 +6358,7 @@ class SeleniumTests(AdminSeleniumTestCase):
 
     def test_inline_with_popup_cancel_delete(self):
         """Clicking ""No, take me back" on a delete popup closes the window."""
+        from selenium.webdriver import ActionChains
         from selenium.webdriver.common.by import By
 
         parent = ParentWithUUIDPK.objects.create(title="test")
@@ -6327,8 +6370,10 @@ class SeleniumTests(AdminSeleniumTestCase):
             "admin:admin_views_relatedwithuuidpkmodel_change",
             args=(related_with_parent.id,),
         )
-        self.selenium.get(self.live_server_url + change_url)
-        self.selenium.find_element(By.ID, "delete_id_parent").click()
+        with self.wait_page_loaded():
+            self.selenium.get(self.live_server_url + change_url)
+        delete_parent = self.selenium.find_element(By.ID, "delete_id_parent")
+        ActionChains(self.selenium).move_to_element(delete_parent).click().perform()
         self.wait_for_and_switch_to_popup()
         self.selenium.find_element(By.XPATH, '//a[text()="No, take me back"]').click()
         self.selenium.switch_to.window(self.selenium.window_handles[0])
@@ -6515,6 +6560,7 @@ class SeleniumTests(AdminSeleniumTestCase):
             self.assertIs(field_title.is_displayed(), False)
 
     def test_updating_related_objects_updates_fk_selects_except_autocompletes(self):
+        from selenium.webdriver import ActionChains
         from selenium.webdriver.common.by import By
         from selenium.webdriver.support.ui import Select
 
@@ -6576,7 +6622,8 @@ class SeleniumTests(AdminSeleniumTestCase):
         )
 
         # Add new Country from the living_country select.
-        self.selenium.find_element(By.ID, f"add_{living_country_select_id}").click()
+        element = self.selenium.find_element(By.ID, f"add_{living_country_select_id}")
+        ActionChains(self.selenium).move_to_element(element).click(element).perform()
         self.wait_for_and_switch_to_popup()
         self.selenium.find_element(By.ID, "id_name").send_keys("Spain")
         continent_select = Select(

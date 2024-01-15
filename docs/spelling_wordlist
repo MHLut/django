@@ -119,6 +119,7 @@ datetimes
 declaratively
 decrementing
 deduplicates
+deduplication
 deepcopy
 deferrable
 deprecations
@@ -328,6 +329,7 @@ OGC
 OGR
 ons
 orderable
+Orca
 Orléans
 orm
 Outdim

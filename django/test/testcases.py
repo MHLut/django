@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from copy import copy, deepcopy
 from difflib import get_close_matches
 from functools import wraps
+from unittest import mock
 from unittest.suite import _DebugResult
 from unittest.util import safe_repr
 from urllib.parse import (
@@ -37,6 +38,7 @@ from django.core.management.sql import emit_post_migrate_signal
 from django.core.servers.basehttp import ThreadedWSGIServer, WSGIRequestHandler
 from django.core.signals import setting_changed
 from django.db import DEFAULT_DB_ALIAS, connection, connections, transaction
+from django.db.backends.base.base import NO_DB_ALIAS, BaseDatabaseWrapper
 from django.forms.fields import CharField
 from django.http import QueryDict
 from django.http.request import split_domain_port, validate_host
@@ -51,6 +53,7 @@ from django.test.utils import (
     override_settings,
 )
 from django.utils.functional import classproperty
+from django.utils.version import PY311
 from django.views.static import serve
 
 logger = logging.getLogger("django.test")
@@ -62,6 +65,24 @@ __all__ = (
     "skipIfDBFeature",
     "skipUnlessDBFeature",
 )
+
+
+if not PY311:
+    # Backport of unittest.case._enter_context() from Python 3.11.
+    def _enter_context(cm, addcleanup):
+        # Look up the special methods on the type to match the with statement.
+        cls = type(cm)
+        try:
+            enter = cls.__enter__
+            exit = cls.__exit__
+        except AttributeError:
+            raise TypeError(
+                f"'{cls.__module__}.{cls.__qualname__}' object does not support the "
+                f"context manager protocol"
+            ) from None
+        result = enter(cm)
+        addcleanup(exit, cm, None, None, None)
+        return result
 
 
 def to_list(value):
@@ -190,13 +211,9 @@ class SimpleTestCase(unittest.TestCase):
     def setUpClass(cls):
         super().setUpClass()
         if cls._overridden_settings:
-            cls._cls_overridden_context = override_settings(**cls._overridden_settings)
-            cls._cls_overridden_context.enable()
-            cls.addClassCleanup(cls._cls_overridden_context.disable)
+            cls.enterClassContext(override_settings(**cls._overridden_settings))
         if cls._modified_settings:
-            cls._cls_modified_context = modify_settings(cls._modified_settings)
-            cls._cls_modified_context.enable()
-            cls.addClassCleanup(cls._cls_modified_context.disable)
+            cls.enterClassContext(modify_settings(cls._modified_settings))
         cls._add_databases_failures()
         cls.addClassCleanup(cls._remove_databases_failures)
 
@@ -236,6 +253,13 @@ class SimpleTestCase(unittest.TestCase):
                 }
                 method = getattr(connection, name)
                 setattr(connection, name, _DatabaseFailure(method, message))
+        cls.enterClassContext(
+            mock.patch.object(
+                BaseDatabaseWrapper,
+                "ensure_connection",
+                new=cls.ensure_connection_patch_method(),
+            )
+        )
 
     @classmethod
     def _remove_databases_failures(cls):
@@ -246,6 +270,28 @@ class SimpleTestCase(unittest.TestCase):
             for name, _ in cls._disallowed_connection_methods:
                 method = getattr(connection, name)
                 setattr(connection, name, method.wrapped)
+
+    @classmethod
+    def ensure_connection_patch_method(cls):
+        real_ensure_connection = BaseDatabaseWrapper.ensure_connection
+
+        def patched_ensure_connection(self, *args, **kwargs):
+            if (
+                self.connection is None
+                and self.alias not in cls.databases
+                and self.alias != NO_DB_ALIAS
+            ):
+                # Connection has not yet been established, but the alias is not allowed.
+                message = cls._disallowed_database_msg % {
+                    "test": f"{cls.__module__}.{cls.__qualname__}",
+                    "alias": self.alias,
+                    "operation": "threaded connections",
+                }
+                return _DatabaseFailure(self.ensure_connection, message)()
+
+            real_ensure_connection(self, *args, **kwargs)
+
+        return patched_ensure_connection
 
     def __call__(self, result=None):
         """
@@ -311,6 +357,12 @@ class SimpleTestCase(unittest.TestCase):
     def _post_teardown(self):
         """Perform post-test things."""
         pass
+
+    if not PY311:
+        # Backport of unittest.TestCase.enterClassContext() from Python 3.11.
+        @classmethod
+        def enterClassContext(cls, cm):
+            return _enter_context(cm, cls.addClassCleanup)
 
     def settings(self, **kwargs):
         """
@@ -897,14 +949,17 @@ class SimpleTestCase(unittest.TestCase):
             msg_prefix += ": "
         haystack_repr = safe_repr(haystack)
         if count is not None:
-            self.assertEqual(
-                real_count,
-                count,
-                (
-                    f"{msg_prefix}Found {real_count} instances of {needle!r} (expected "
-                    f"{count}) in the following response\n{haystack_repr}"
-                ),
-            )
+            if count == 0:
+                msg = (
+                    f"{needle!r} unexpectedly found in the following response\n"
+                    f"{haystack_repr}"
+                )
+            else:
+                msg = (
+                    f"Found {real_count} instances of {needle!r} (expected {count}) in "
+                    f"the following response\n{haystack_repr}"
+                )
+            self.assertEqual(real_count, count, f"{msg_prefix}{msg}")
         else:
             self.assertTrue(
                 real_count != 0,
@@ -913,6 +968,9 @@ class SimpleTestCase(unittest.TestCase):
                     f"{haystack_repr}"
                 ),
             )
+
+    def assertNotInHTML(self, needle, haystack, msg_prefix=""):
+        self.assertInHTML(needle, haystack, count=0, msg_prefix=msg_prefix)
 
     def assertJSONEqual(self, raw, expected_data, msg=None):
         """
@@ -1670,11 +1728,9 @@ class LiveServerTestCase(TransactionTestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls._live_server_modified_settings = modify_settings(
-            ALLOWED_HOSTS={"append": cls.allowed_host},
+        cls.enterClassContext(
+            modify_settings(ALLOWED_HOSTS={"append": cls.allowed_host})
         )
-        cls._live_server_modified_settings.enable()
-        cls.addClassCleanup(cls._live_server_modified_settings.disable)
         cls._start_server_thread()
 
     @classmethod

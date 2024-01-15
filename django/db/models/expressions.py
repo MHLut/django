@@ -14,7 +14,7 @@ from django.db.models import fields
 from django.db.models.constants import LOOKUP_SEP
 from django.db.models.query_utils import Q
 from django.utils.deconstruct import deconstructible
-from django.utils.functional import cached_property
+from django.utils.functional import cached_property, classproperty
 from django.utils.hashable import make_hashable
 
 
@@ -28,7 +28,7 @@ class SQLiteNumericMixin:
         sql, params = self.as_sql(compiler, connection, **extra_context)
         try:
             if self.output_field.get_internal_type() == "DecimalField":
-                sql = "CAST(%s AS NUMERIC)" % sql
+                sql = "(CAST(%s AS NUMERIC))" % sql
         except FieldError:
             pass
         return sql, params
@@ -402,10 +402,13 @@ class BaseExpression:
         return clone
 
     def replace_expressions(self, replacements):
+        if not replacements:
+            return self
         if replacement := replacements.get(self):
             return replacement
+        if not (source_expressions := self.get_source_expressions()):
+            return self
         clone = self.copy()
-        source_expressions = clone.get_source_expressions()
         clone.set_source_expressions(
             [
                 expr.replace_expressions(replacements) if expr else None
@@ -417,6 +420,8 @@ class BaseExpression:
     def get_refs(self):
         refs = set()
         for expr in self.get_source_expressions():
+            if expr is None:
+                continue
             refs |= expr.get_refs()
         return refs
 
@@ -483,13 +488,18 @@ class BaseExpression:
 class Expression(BaseExpression, Combinable):
     """An expression that can be combined with other expressions."""
 
+    @classproperty
+    @functools.lru_cache(maxsize=128)
+    def _constructor_signature(cls):
+        return inspect.signature(cls.__init__)
+
     @cached_property
     def identity(self):
-        constructor_signature = inspect.signature(self.__init__)
         args, kwargs = self._constructor_args
-        signature = constructor_signature.bind_partial(*args, **kwargs)
+        signature = self._constructor_signature.bind_partial(self, *args, **kwargs)
         signature.apply_defaults()
-        arguments = signature.arguments.items()
+        arguments = iter(signature.arguments.items())
+        next(arguments)
         identity = [self.__class__]
         for arg, value in arguments:
             if isinstance(value, fields.Field):
@@ -849,6 +859,9 @@ class F(Combinable):
     def __repr__(self):
         return "{}({})".format(self.__class__.__name__, self.name)
 
+    def __getitem__(self, subscript):
+        return Sliced(self, subscript)
+
     def resolve_expression(
         self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False
     ):
@@ -921,6 +934,63 @@ class OuterRef(F):
 
     def relabeled_clone(self, relabels):
         return self
+
+
+class Sliced(F):
+    """
+    An object that contains a slice of an F expression.
+
+    Object resolves the column on which the slicing is applied, and then
+    applies the slicing if possible.
+    """
+
+    def __init__(self, obj, subscript):
+        super().__init__(obj.name)
+        self.obj = obj
+        if isinstance(subscript, int):
+            if subscript < 0:
+                raise ValueError("Negative indexing is not supported.")
+            self.start = subscript + 1
+            self.length = 1
+        elif isinstance(subscript, slice):
+            if (subscript.start is not None and subscript.start < 0) or (
+                subscript.stop is not None and subscript.stop < 0
+            ):
+                raise ValueError("Negative indexing is not supported.")
+            if subscript.step is not None:
+                raise ValueError("Step argument is not supported.")
+            if subscript.stop and subscript.start and subscript.stop < subscript.start:
+                raise ValueError("Slice stop must be greater than slice start.")
+            self.start = 1 if subscript.start is None else subscript.start + 1
+            if subscript.stop is None:
+                self.length = None
+            else:
+                self.length = subscript.stop - (subscript.start or 0)
+        else:
+            raise TypeError("Argument to slice must be either int or slice instance.")
+
+    def __repr__(self):
+        start = self.start - 1
+        stop = None if self.length is None else start + self.length
+        subscript = slice(start, stop)
+        return f"{self.__class__.__qualname__}({self.obj!r}, {subscript!r})"
+
+    def resolve_expression(
+        self,
+        query=None,
+        allow_joins=True,
+        reuse=None,
+        summarize=False,
+        for_save=False,
+    ):
+        resolved = query.resolve_ref(self.name, allow_joins, reuse, summarize)
+        if isinstance(self.obj, (OuterRef, self.__class__)):
+            expr = self.obj.resolve_expression(
+                query, allow_joins, reuse, summarize, for_save
+            )
+        else:
+            expr = resolved
+        return resolved.output_field.slice_expression(expr, self.start, self.length)
 
 
 @deconstructible(path="django.db.models.Func")
@@ -1263,8 +1333,14 @@ class ExpressionList(Func):
         # Casting to numeric is unnecessary.
         return self.as_sql(compiler, connection, **extra_context)
 
+    def get_group_by_cols(self):
+        group_by_cols = []
+        for expr in self.get_source_expressions():
+            group_by_cols.extend(expr.get_group_by_cols())
+        return group_by_cols
 
-class OrderByList(Func):
+
+class OrderByList(ExpressionList):
     allowed_default = False
     template = "ORDER BY %(expressions)s"
 
@@ -1278,17 +1354,6 @@ class OrderByList(Func):
             for expr in expressions
         )
         super().__init__(*expressions, **extra)
-
-    def as_sql(self, *args, **kwargs):
-        if not self.source_expressions:
-            return "", ()
-        return super().as_sql(*args, **kwargs)
-
-    def get_group_by_cols(self):
-        group_by_cols = []
-        for order_by in self.get_source_expressions():
-            group_by_cols.extend(order_by.get_group_by_cols())
-        return group_by_cols
 
 
 @deconstructible(path="django.db.models.ExpressionWrapper")
@@ -1697,10 +1762,13 @@ class OrderBy(Expression):
         return (template % placeholders).rstrip(), params
 
     def as_oracle(self, compiler, connection):
-        # Oracle doesn't allow ORDER BY EXISTS() or filters unless it's wrapped
-        # in a CASE WHEN.
-        if connection.ops.conditional_expression_supported_in_where_clause(
-            self.expression
+        # Oracle < 23c doesn't allow ORDER BY EXISTS() or filters unless it's
+        # wrapped in a CASE WHEN.
+        if (
+            not connection.features.supports_boolean_expr_in_select_clause
+            and connection.ops.conditional_expression_supported_in_where_clause(
+                self.expression
+            )
         ):
             copy = self.copy()
             copy.expression = Case(

@@ -17,6 +17,7 @@ from django.contrib.admin.utils import (
     lookup_field,
     quote,
 )
+from django.core.validators import EMPTY_VALUES
 from django.db import DEFAULT_DB_ALIAS, models
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils.formats import localize
@@ -149,42 +150,35 @@ class UtilsTests(SimpleTestCase):
 
             self.assertEqual(value, resolved_value)
 
-    def test_null_display_for_field(self):
-        """
-        Regression test for #12550: display_for_field should handle None
-        value.
-        """
-        display_value = display_for_field(None, models.CharField(), self.empty_value)
-        self.assertEqual(display_value, self.empty_value)
+    def test_empty_value_display_for_field(self):
+        tests = [
+            models.CharField(),
+            models.DateField(),
+            models.DecimalField(),
+            models.FloatField(),
+            models.JSONField(),
+            models.TimeField(),
+        ]
+        for model_field in tests:
+            for value in model_field.empty_values:
+                with self.subTest(model_field=model_field, empty_value=value):
+                    display_value = display_for_field(
+                        value, model_field, self.empty_value
+                    )
+                    self.assertEqual(display_value, self.empty_value)
 
-        display_value = display_for_field(
-            None, models.CharField(choices=((None, "test_none"),)), self.empty_value
-        )
+    def test_empty_value_display_choices(self):
+        model_field = models.CharField(choices=((None, "test_none"),))
+        display_value = display_for_field(None, model_field, self.empty_value)
         self.assertEqual(display_value, "test_none")
 
-        display_value = display_for_field(None, models.DateField(), self.empty_value)
-        self.assertEqual(display_value, self.empty_value)
-
-        display_value = display_for_field(None, models.TimeField(), self.empty_value)
-        self.assertEqual(display_value, self.empty_value)
-
-        display_value = display_for_field(
-            None, models.BooleanField(null=True), self.empty_value
-        )
+    def test_empty_value_display_booleanfield(self):
+        model_field = models.BooleanField(null=True)
+        display_value = display_for_field(None, model_field, self.empty_value)
         expected = (
-            '<img src="%sadmin/img/icon-unknown.svg" alt="None" />'
-            % settings.STATIC_URL
+            f'<img src="{settings.STATIC_URL}admin/img/icon-unknown.svg" alt="None" />'
         )
         self.assertHTMLEqual(display_value, expected)
-
-        display_value = display_for_field(None, models.DecimalField(), self.empty_value)
-        self.assertEqual(display_value, self.empty_value)
-
-        display_value = display_for_field(None, models.FloatField(), self.empty_value)
-        self.assertEqual(display_value, self.empty_value)
-
-        display_value = display_for_field(None, models.JSONField(), self.empty_value)
-        self.assertEqual(display_value, self.empty_value)
 
     def test_json_display_for_field(self):
         tests = [
@@ -255,6 +249,12 @@ class UtilsTests(SimpleTestCase):
         )
         self.assertEqual(display_for_value(True, ""), "True")
         self.assertEqual(display_for_value(False, ""), "False")
+
+    def test_list_display_for_value_empty(self):
+        for value in EMPTY_VALUES:
+            with self.subTest(empty_value=value):
+                display_value = display_for_value(value, self.empty_value)
+                self.assertEqual(display_value, self.empty_value)
 
     def test_label_for_field(self):
         """
