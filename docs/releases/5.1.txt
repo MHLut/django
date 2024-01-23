@@ -70,6 +70,14 @@ Minor features
   ``metro_code`` and ``region_code``, but the previous keys are also retained
   for backward compatibility.
 
+* :class:`~django.contrib.gis.measure.Area` now supports the ``ha`` unit.
+
+* The new :attr:`.OGRGeometry.is_3d` attribute allows checking if a geometry
+  has a ``Z`` coordinate dimension.
+
+* The new :meth:`.OGRGeometry.set_3d` method allows addition and removal of the
+  ``Z`` coordinate dimension.
+
 :mod:`django.contrib.messages`
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -181,12 +189,17 @@ Logging
 Management Commands
 ~~~~~~~~~~~~~~~~~~~
 
-* ...
+* :djadmin:`makemigrations` command now displays meaningful symbols for each
+  operation to highlight :class:`operation categories
+  <django.db.migrations.operations.base.OperationCategory>`.
 
 Migrations
 ~~~~~~~~~~
 
-* ...
+* The new ``Operation.category`` attribute allows specifying an
+  :class:`operation category
+  <django.db.migrations.operations.base.OperationCategory>` used by the
+  :djadmin:`makemigrations` to display a meaningful symbol for the operation.
 
 Models
 ~~~~~~
@@ -212,6 +225,11 @@ Models
   :class:`~django.db.models.TextField`, or
   :class:`~django.contrib.postgres.fields.ArrayField` can now be :ref:`sliced
   <slicing-using-f>`.
+
+* The new ``from_queryset`` argument of :meth:`.Model.refresh_from_db` and
+  :meth:`.Model.arefresh_from_db`  allows customizing the queryset used to
+  reload a model's value. This can be used to lock the row before reloading or
+  to select related objects.
 
 Requests and Responses
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -364,6 +382,9 @@ Miscellaneous
 
 * Passing positional arguments to :meth:`.Model.save` and :meth:`.Model.asave`
   is deprecated in favor of keyword-only arguments.
+
+* Setting ``django.contrib.gis.gdal.OGRGeometry.coord_dim`` is deprecated. Use
+  :meth:`~django.contrib.gis.gdal.OGRGeometry.set_3d` instead.
 
 Features removed in 5.1
 =======================
