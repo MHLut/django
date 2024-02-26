@@ -76,6 +76,23 @@ form ul.inline li {
     padding-right: 7px;
 }
 
+/* FIELDSETS */
+
+fieldset legend {
+    inline-size: 100%;
+    padding: 0;
+}
+
+fieldset h3 {
+    border: 1px solid var(--header-bg);
+    margin: 0;
+    padding: 8px;
+    font-weight: 400;
+    font-size: 0.8125rem;
+    background: var(--header-bg);
+    color: var(--header-link-color);
+}
+
 /* ALIGNED FIELDSETS */
 
 .aligned label {
@@ -209,35 +226,21 @@ form div.help ul {
     width: 450px;
 }
 
-/* COLLAPSED FIELDSETS */
+/* COLLAPSIBLE FIELDSETS */
 
-fieldset.collapsed * {
-    display: none;
-}
-
-fieldset.collapsed h2, fieldset.collapsed {
-    display: block;
-}
-
-fieldset.collapsed {
+.collapse details {
     border: 1px solid var(--hairline-color);
-    border-radius: 4px;
-    overflow: hidden;
+    border-top: none;
+    font-size: 0.8125rem;
+    padding: 10px;
 }
 
-fieldset.collapsed h2 {
-    background: var(--darkened-bg);
-    color: var(--body-quiet-color);
+.collapse details[open] summary {
+    padding-bottom: 10px;
 }
 
-fieldset .collapse-toggle {
-    color: var(--header-link-color);
-}
-
-fieldset.collapsed .collapse-toggle {
-    background: transparent;
-    display: inline;
-    color: var(--link-fg);
+.collapse .form-row:last-child {
+    border-bottom: none;
 }
 
 /* MONOSPACE TEXTAREAS */
@@ -395,8 +398,9 @@ body.popup .submit-row {
     padding: 5px;
     font-size: 0.8125rem;
     background: var(--darkened-bg);
-    border-top: 1px solid var(--hairline-color);
-    border-bottom: 1px solid var(--hairline-color);
+    border: 1px solid var(--hairline-color);
+    border-left-color: var(--darkened-bg);
+    border-right-color: var(--darkened-bg);
 }
 
 .inline-related h3 span.delete {

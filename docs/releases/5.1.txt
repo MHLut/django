@@ -407,6 +407,12 @@ Miscellaneous
   a ``<footer>`` tag instead of a ``<div>``, and also moved below the
   ``<div id="main">`` element.
 
+* In order to improve accessibility, the collapsible widget applied to
+  :attr:`ModelAdmin.fieldsets <django.contrib.admin.ModelAdmin.fieldsets>` and
+  :attr:`InlineModelAdmin.classes
+  <django.contrib.admin.InlineModelAdmin.classes>` with the ``collapse`` class
+  now use ``<details>`` elements.
+
 * :meth:`.SimpleTestCase.assertURLEqual` and
   :meth:`~django.test.SimpleTestCase.assertInHTML` now add ``": "`` to the
   ``msg_prefix``. This is consistent with the behavior of other assertions.
