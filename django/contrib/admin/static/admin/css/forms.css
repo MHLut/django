@@ -83,7 +83,8 @@ fieldset legend {
     padding: 0;
 }
 
-fieldset h3 {
+fieldset :not(.inline-related) h3,
+:not(.inline-related) .collapse summary {
     border: 1px solid var(--header-bg);
     margin: 0;
     padding: 8px;
@@ -228,15 +229,18 @@ form div.help ul {
 
 /* COLLAPSIBLE FIELDSETS */
 
-.collapse details {
-    border: 1px solid var(--hairline-color);
-    border-top: none;
-    font-size: 0.8125rem;
-    padding: 10px;
+.collapse details h3,
+.collapse details h4 {
+    background: transparent;
+    border: none;
+    color: currentColor;
+    display: inline;
+    margin: 0;
+    padding: 0;
 }
 
-.collapse details[open] summary {
-    padding-bottom: 10px;
+.collapse details .description {
+    padding-top: 10px;
 }
 
 .collapse .form-row:last-child {
@@ -392,7 +396,8 @@ body.popup .submit-row {
     position: relative;
 }
 
-.inline-related h3 {
+.inline-related h4,
+.inline-related .collapse summary {
     margin: 0;
     color: var(--body-quiet-color);
     padding: 5px;

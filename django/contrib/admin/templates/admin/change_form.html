@@ -47,7 +47,7 @@
 
 {% block field_sets %}
 {% for fieldset in adminform %}
-  {% include "admin/includes/fieldset.html" %}
+  {% include "admin/includes/fieldset.html" with heading_level=3 %}
 {% endfor %}
 {% endblock %}
 
