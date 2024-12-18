@@ -188,6 +188,7 @@ class ModelChoiceFieldTests(TestCase):
                         widget=widget,
                         blank=blank,
                     )
+                    # ToDo: Check this line if we can use BLANK_CHOICE_DASH
                     self.assertEqual(
                         list(f.choices),
                         [("", "---------")] + choices if blank else choices,
