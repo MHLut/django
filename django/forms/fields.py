@@ -1217,6 +1217,7 @@ class FilePathField(ChoiceField):
         if self.required:
             self.choices = []
         else:
+            # ToDo: Check this line if we can use BLANK_CHOICE_DASH
             self.choices = [("", "---------")]
 
         if self.match is not None:

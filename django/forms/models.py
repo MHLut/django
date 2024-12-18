@@ -1456,7 +1456,7 @@ class ModelChoiceField(ChoiceField):
         self,
         queryset,
         *,
-        empty_label="---------",
+        empty_label="",
         required=True,
         widget=None,
         label=None,
@@ -1483,6 +1483,9 @@ class ModelChoiceField(ChoiceField):
         ):
             self.empty_label = None
         else:
+            if empty_label == "":
+                # ToDo: Check this line if we can use BLANK_CHOICE_DASH
+                empty_label = "---------"
             self.empty_label = empty_label
         self.queryset = queryset
         self.limit_choices_to = limit_choices_to  # limit the queryset later.

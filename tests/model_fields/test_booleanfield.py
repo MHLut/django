@@ -48,6 +48,7 @@ class BooleanFieldTests(TestCase):
         """
         choices = [(1, "Si"), (2, "No")]
         f = models.BooleanField(choices=choices)
+        # ToDo: Check this line if we can use BLANK_CHOICE_DASH
         self.assertEqual(f.formfield().choices, [("", "---------")] + choices)
 
     def test_nullbooleanfield_formfield(self):
